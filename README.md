@@ -1,86 +1,516 @@
-# Pubvana Installer
+# Pubvana Web Installer
 
-Install Pubvana on any PHP hosting environment through a guided web wizard. No command line required.
+**By EnlivenApp**
 
-## What You Get
+Built on the [CodeIgniter 4 Flexible Web App Installer](https://github.com/enlivenapp/CodeIgniter4-Flexible-Web-App-Installer), this project produces a self-extracting installer that walks your users through setting up Pubvana via a step-by-step web wizard. Configure what you need, build, and distribute.
 
-Pubvana is a CMS and blogging platform built on CodeIgniter 4. This installer handles the full setup: server checks, database configuration, file permissions, migrations, seeding, and admin account creation.
+[![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
 
-## Requirements
+---
+
+## Quick Start
+
+ **Edit `installer-config.php`** for your application (see Configuration Reference below)
+
+ **Build the installer**
+   ```bash
+   php build/pack.php
+   ```
+   This produces `dist/install.zip` containing both `install.php` and your `installer-config.php`.
+
+   Use `--name` to customize the output filename:
+   ```bash
+   php build/pack.php --name=pubvana-install
+   ```
+   This produces `dist/pubvana-install.zip` instead.
+
+   If PHP's ZipArchive extension isn't available, the build produces the standalone php file in `dist/` instead. You'll need to distribute it alongside `installer-config.php` or create the zip file yourself.
+
+
+
+---
+
+## Configuration Reference
+
+The `installer-config.php` file controls everything the installer does. Every key is documented below.
+
+### branding
+
+| Key | Type | Required | Default | Description |
+|-----|------|----------|---------|-------------|
+| `name` | string | Yes | -- | Your application name. Displayed throughout the wizard. |
+| `version` | string | No | `'1.0.0'` | Version string shown on the welcome screen. |
+| `logo` | string | No | `''` | Path to a logo image (relative or URL). Empty for no logo. |
+| `support_url` | string | No | `''` | URL shown in error messages ("Visit X for help"). |
+| `support_email` | string | No | `''` | Email shown in error messages if no support_url. |
+| `welcome_text` | string | No | Auto-generated | Custom welcome message on the first screen. |
+| `colors` | array | No | Built-in scheme | DaisyUI color overrides (see below). |
+
+**Color keys:** `primary`, `secondary`, `accent`, `neutral`, `base-100`, `base-200`, `base-300`. Values are CSS color strings (hex, rgb, hsl).
+
+### source
+
+| Key | Type | Required | Description |
+|-----|------|----------|-------------|
+| `zip` | string | **Yes** | Direct download URL to a zip file containing your app. This is the universal fallback -- it must always be provided. |
+| `composer` | string | No | Packagist package name (e.g., `'vendor/package'`). Used when composer is available on the server. |
+| `git` | string | No | Git repository URL. Used when git is available on the server. |
+
+The installer picks the best download method based on what the server supports: composer (fastest) > git > cURL download > PHP streams > manual upload instructions.
+
+**Important:** The zip file must include the `vendor/` directory if you want it to work on servers without composer. See "Preparing Your Release ZIP" below.
+
+### requirements
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `php` | string | `'8.2'` | Minimum PHP version required. |
+| `extensions` | array | `[]` | PHP extensions your app needs (e.g., `['curl', 'mbstring', 'intl']`). |
+| `databases` | array | All four | Restrict which database drivers are offered. Options: `MySQLi`, `Postgre`, `SQLite3`, `SQLSRV`. |
+
+### writable_dirs
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `writable_dirs` | array | `['writable/cache', 'writable/logs', 'writable/session', 'writable/uploads']` | Directories the installer creates and sets permissions on. |
+| `writable_dir_permissions` | int | `0755` | Permission mode for writable directories (ignored on Windows). |
+
+### env_vars
+
+An array of custom environment variables your app needs. Each entry creates a form field in the wizard.
+
+```php
+'env_vars' => [
+    [
+        'key'      => 'stripe.secretKey',     // The .env key to set
+        'label'    => 'Stripe Secret Key',    // Form field label
+        'type'     => 'password',             // Input type (see below)
+        'required' => true,                   // Block installation if empty?
+        'group'    => 'Stripe',               // Group heading in the wizard
+        'help'     => 'Find this in your Stripe dashboard.',  // Help text
+        'default'  => '',                     // Default value
+        'validate' => 'regex:/^sk_/',         // Validation pattern (optional)
+    ],
+],
+```
+
+**Available types:** `text`, `password`, `email`, `url`, `select`, `boolean`
+
+For `select` type, add an `options` key with an array of choices.
+
+### post_install
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `migrate` | bool | `true` | Run database migrations after install. |
+| `seed` | bool | `false` | Run a database seeder after migrations. |
+| `seeder_class` | string | `''` | Fully qualified seeder class name. Required if `seed` is `true`. Example: `'App\\Database\\Seeds\\DefaultSeeder'` |
+
+### auth
+
+Controls admin user creation during installation.
+
+| Key | Type | Required | Description |
+|-----|------|----------|-------------|
+| `system` | string | No (default: `'none'`) | Auth library. Options: `shield`, `ion_auth`, `myth_auth`, `custom`, `none`. |
+| `collect` | array | If system is not `none` | Fields to show in the wizard. Example: `['username', 'email', 'password']` |
+| `group` | string | For shield/ion_auth/myth_auth | Group or role to assign the admin. Example: `'superadmin'` |
+
+**For `custom` auth systems**, additional keys are required:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `table` | string | Database table name for users. |
+| `fields` | array | Maps wizard fields to database columns: `['email' => 'email_column', 'password' => 'pass_hash_column']` |
+| `hash_method` | string | PHP `password_hash()` algorithm constant. Example: `'PASSWORD_DEFAULT'` |
+| `extra_inserts` | array | Additional columns to set: `['role' => 'admin', 'active' => 1]` |
+
+### public_dir_handling
+
+Controls how the installer handles CI4's `public/` directory convention.
+
+| Value | Description |
+|-------|-------------|
+| `auto` | **(Default)** Try each strategy in order: isolate, htaccess, flatten. |
+| `isolate` | Move app files (`app/`, `vendor/`, `writable/`) outside the document root. Most secure. |
+| `htaccess` | Write a root `.htaccess` (Apache/LiteSpeed) or `web.config` (IIS) to route requests to `public/`. Nginx gets manual instructions. |
+| `flatten` | Copy `index.php` to the root directory. Last resort -- works but less secure. |
+| `none` | Skip this step. Use when your release zip already handles the directory structure. |
+
+### post_install_url
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `post_install_url` | string | `'/'` | URL to redirect to after installation completes. |
+
+---
+
+## How It Works
+
+The installer runs through five phases:
+
+### Phase 1: Environment Detection
+
+Probes the server by actually attempting operations (not just checking flags):
+- PHP version and extensions
+- Server software (Apache, Nginx, LiteSpeed, IIS)
+- Available database drivers
+- exec() and shell_exec() availability
+- Composer and Git presence
+- Filesystem ownership (determines Direct vs FTP/SSH access)
+- HTTPS status
+- Outbound HTTP connectivity
+
+### Phase 2: Requirements Check
+
+Compares detected capabilities against your `requirements` config. Shows a green/red/yellow checklist. Hard failures block installation; warnings allow proceeding.
+
+### Phase 3: User Configuration
+
+Collects values through the wizard:
+- Database credentials (with live connection testing)
+- Base URL (auto-detected, user confirms)
+- Encryption key (auto-generated)
+- Custom env vars from your config
+- Admin user credentials (if auth is configured)
+- FTP/SSH credentials (only if direct filesystem access is unavailable)
+
+### Phase 4: Installation
+
+Each substep runs as a separate AJAX request to manage execution time on shared hosting:
+
+| Substep | Description |
+|---------|-------------|
+| 4a | Download the application (composer/git/zip/manual) |
+| 4b | Extract and normalize directory structure |
+| 4c | Validate (check for vendor/, spark, app/) |
+| 4d | Handle public/ directory convention |
+| 4e | Write .env file |
+| 4f | Set directory permissions |
+| 4g | Run migrations |
+| 4h | Run seeders (if configured) |
+| 4i | Create admin user (if configured) |
+
+### Phase 5: Cleanup
+
+- Deletes `install.php` (creates `install.lock` as fallback if delete fails)
+- Removes temporary extraction directory
+- Redirects to your application
+
+---
+
+## Server Compatibility
+
+### Minimum Requirements
 
 - PHP 8.2 or higher
-- MySQL database
-- Required PHP extensions: curl, mbstring, intl, json, fileinfo, openssl
-- A web server (Apache, LiteSpeed, Nginx, or IIS)
+- At least one supported database driver
 
-## Installation
+### Supported Web Servers
 
-### 1. Upload
+| Server | How Handled |
+|--------|-------------|
+| Apache | Full support. Writes `.htaccess` for rewrites and directory protection. |
+| LiteSpeed | Full support. Uses `.htaccess` (LiteSpeed is Apache-compatible). |
+| IIS | Writes `web.config` with URL Rewrite rules and request filtering. |
+| Nginx | Shows manual configuration instructions (Nginx ignores `.htaccess`). |
 
-Extract the installer zip on your server. You should have two files in your web root:
+### Supported Databases
 
-- `install.php`
-- `installer-config.php`
+| Driver | Extension | Notes |
+|--------|-----------|-------|
+| MySQLi | ext-mysqli | Most common on shared hosting. |
+| PostgreSQL | ext-pgsql | Common on VPS and managed DB services. |
+| SQLite3 | ext-sqlite3 | No server needed. Installer validates path and permissions. |
+| SQL Server | ext-sqlsrv | Windows/enterprise environments. |
 
-### 2. Run the Wizard
+### Filesystem Access
 
-Navigate to `install.php` in your browser (e.g., `https://yourdomain.com/install.php`). The wizard walks you through each step:
+| Method | When Used |
+|--------|-----------|
+| Direct PHP | PHP runs as file owner (suPHP, PHP-FPM per-user). Detected automatically. |
+| FTP | Direct access fails, `ext-ftp` available. Credentials collected in wizard. |
+| FTPS | Direct access fails, `ftp_ssl_connect()` available. |
+| SSH2/SFTP | Direct access fails, `ext-ssh2` available. |
+| Manual | All methods fail. User shown exact instructions. |
 
-**System Check** -- verifies your server meets the requirements. Green means good, red means something needs fixing before you can proceed.
+### Optional Capabilities
 
-**Filesystem** -- the installer figures out how to write files. On most shared hosting this happens automatically. If your PHP process doesn't own the target directory, you'll be asked for FTP or SSH credentials.
+These are used when available but never required:
 
-**Database** -- enter your MySQL credentials. The installer tests the connection before moving on.
+| Capability | Benefit |
+|------------|---------|
+| exec() | Enables composer, git, and spark commands |
+| Composer | Fastest download method (composer create-project) |
+| Git | Second-fastest download method (git clone) |
+| cURL | Preferred HTTP download method |
+| ZipArchive | Preferred extraction method |
 
-**Configuration** -- confirm your base URL and environment setting. An encryption key is generated automatically.
+---
 
-**Admin Account** -- create your first admin user. You'll set a username, email, and password. This account gets superadmin privileges.
+## Building from Source
 
-**Install** -- the installer downloads Pubvana, extracts it, writes your `.env` file, runs database migrations, seeds initial data, and creates your admin account. Each step shows progress so you know what's happening.
+### Prerequisites
 
-**Done** -- the installer cleans up after itself and redirects you to the login page.
+- PHP 8.2+ (for running the build script)
+- Optional: Node.js + npm (for building purged DaisyUI CSS)
 
-### 3. Log In
+### Project Structure
 
-After installation completes, you're redirected to `/login`. Sign in with the admin credentials you just created.
+```
+ci4-installer/
+├── src/                    Source code (modular)
+│   ├── Installer.php       Main orchestrator
+│   ├── Autoloader.php      PSR-4 autoloader
+│   ├── Result.php          Universal result object
+│   ├── Auth/               Auth adapter system
+│   ├── Config/             Config validator + .env writer
+│   ├── Database/           Connection tester + migration runner
+│   ├── Environment/        Server detection + requirements check
+│   ├── Filesystem/         4-driver filesystem abstraction
+│   ├── Source/             Download strategy chain
+│   └── UI/                 Wizard renderer + templates + assets
+├── build/
+│   └── pack.php            Build script
+├── dist/
+│   └── install.php         Generated installer (after build)
+├── installer-config.php    Example configuration
+├── LICENSE                 CC BY 4.0
+└── README.md
+```
 
-## How Pubvana Gets Downloaded
+### Build Process
 
-The installer tries multiple methods in order, picking the best one your server supports:
+```bash
+php build/pack.php
+```
 
-1. **Composer** (`enlivenapp/pubvana`) -- if composer is available on the server
-2. **Git** -- if git is available
-3. **Direct download** -- falls back to downloading the zip from GitHub
-4. **Manual upload** -- if nothing else works, you get instructions for uploading the files yourself
+This:
+1. Inlines CSS and JS assets into the layout template
+2. Collects all files under `src/` into a tar.gz archive
+3. Base64-encodes the archive
+4. Generates `dist/install.php` with a self-extraction stub
 
-You don't need to choose. The installer detects what's available and picks the fastest option.
+The self-extraction stub includes three fallback methods:
+1. PharData (available in most PHP builds)
+2. exec('tar') (if exec is available)
+3. Pure PHP tar parser (always works if ext-zlib is present)
 
-## Web Server Notes
+### Custom Build Output
 
-Pubvana ships its own `.htaccess` files for Apache and LiteSpeed, so the installer leaves those alone. If you're running Nginx or IIS, you'll need to configure your server to route requests through the `public/` directory yourself.
+```bash
+php build/pack.php --output=/path/to/install.php
+```
 
-## After Installation
+### CSS/JS Assets
 
-The `install.php` file deletes itself when installation completes. If deletion fails (some hosting environments prevent it), an `install.lock` file is created instead, which prevents the installer from running again.
+The layout template loads DaisyUI and Alpine.js from CDN by default. The inline `/* DAISYUI_CSS */` and `/* ALPINE_JS */` placeholders serve as offline fallbacks.
 
-If you need to reinstall, delete both `install.lock` and re-upload `install.php`.
+For a production build with purged CSS (smaller file):
 
-## Troubleshooting
+```bash
+# Install Tailwind + DaisyUI
+npm install -D tailwindcss daisyui
 
-**System check shows red items** -- your hosting environment is missing something Pubvana needs. The most common issue is a missing PHP extension. Contact your hosting provider to enable the required extensions listed above.
+# Create tailwind.config.js pointing to src/UI/templates/
+# Run: npx tailwindcss -o src/UI/assets/daisyui.min.css --minify
 
-**Database connection fails** -- double-check your hostname, username, password, and database name. On shared hosting the database host is usually `localhost`. Some providers use a different hostname, which you can find in your hosting control panel.
+# Then rebuild
+php build/pack.php
+```
 
-**Permission errors during install** -- the installer needs to write files to your web directory. If direct PHP access doesn't work, the wizard will ask for FTP or SSH credentials as an alternative.
+---
 
-**Blank page or 500 error** -- check your PHP error log. The most common cause is an unsupported PHP version.
+## Auth Adapters
 
-## Support
+The installer supports five auth systems:
 
-Visit [pubvana.net/contact](https://pubvana.net/contact) for help.
+### Shield (CodeIgniter Shield)
+
+```php
+'auth' => [
+    'system'  => 'shield',
+    'collect' => ['username', 'email', 'password'],
+    'group'   => 'superadmin',
+],
+```
+
+Creates the user via Shield's UserModel and assigns the specified group.
+
+### IonAuth
+
+```php
+'auth' => [
+    'system'  => 'ion_auth',
+    'collect' => ['username', 'email', 'password'],
+    'group'   => 'admin',
+],
+```
+
+Uses IonAuth's register() method and group assignment.
+
+### Myth:Auth
+
+```php
+'auth' => [
+    'system'  => 'myth_auth',
+    'collect' => ['email', 'password'],
+    'group'   => 'admin',
+],
+```
+
+Creates a user entity via Myth:Auth's UserModel.
+
+### Generic (Custom Auth)
+
+For any auth system not listed above:
+
+```php
+'auth' => [
+    'system'         => 'custom',
+    'collect'        => ['email', 'password'],
+    'table'          => 'users',
+    'fields'         => [
+        'email'      => 'email',
+        'password'   => 'password_hash',
+    ],
+    'hash_method'    => 'PASSWORD_DEFAULT',
+    'extra_inserts'  => [
+        'role'   => 'admin',
+        'active' => 1,
+    ],
+],
+```
+
+Performs a direct database INSERT with password hashing. Works with any table structure.
+
+### None
+
+```php
+'auth' => [
+    'system' => 'none',
+],
+```
+
+Skips admin creation entirely. Use this when your app handles first-run registration.
+
+---
+
+## Creating Your App's Download ZIP
+
+The `source.zip` value in your config is a URL where the installer can download your application. When a user runs the installer, it fetches your app from this URL. For servers without composer, the zip **must include the `vendor/` directory** — otherwise there's no way to get the dependencies.
+
+### Step 1: Build the zip
+
+From your CI4 app's root directory:
+
+```bash
+composer install --no-dev --optimize-autoloader
+zip -r my-app-v1.0.0.zip . -x '.git/*' -x 'tests/*' -x '.env'
+```
+
+This creates a zip with everything your app needs to run, minus dev dependencies and sensitive files.
+
+### Step 2: Upload it somewhere
+
+The zip needs to be hosted at a publicly accessible URL. Some options:
+
+- **Your own website** — upload to your server (e.g., `https://yoursite.com/downloads/my-app-v1.0.0.zip`)
+- **GitHub Releases** — if your project is on GitHub, create a Release and attach the zip file as an asset
+- **Any file host** — anywhere that gives you a direct download link
+
+The key requirement: the URL must be a **direct download link** to the zip file, not a page with a download button.
+
+### Step 3: Set the URL in your config
+
+```php
+'source' => [
+    'zip' => 'https://yoursite.com/downloads/my-app-v1.0.0.zip',
+],
+```
+
+That's it. The installer downloads from this URL when your user runs it.
+
+### Automating builds with GitHub Actions (optional, advanced)
+
+If your project is on GitHub, you can automate the zip-building process so you never have to do it manually. GitHub Actions is a free automation service built into GitHub — when something happens in your repo (like tagging a new version), it runs commands for you on GitHub's servers.
+
+The example below does this: when you push a version tag (like `v1.0.0`), GitHub automatically builds the zip and attaches it to a Release page.
+
+Create a file at `.github/workflows/build-release.yml` in your app's repo:
+
+```yaml
+name: Build Release
+
+# This runs whenever you push a tag starting with "v" (e.g., v1.0.0)
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # Check out your code
+      - uses: actions/checkout@v4
+
+      # Set up PHP on the build server
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+
+      # Install your app's composer dependencies (production only)
+      - name: Install dependencies
+        run: composer install --no-dev --optimize-autoloader
+
+      # Create the zip, excluding files your users don't need
+      - name: Create release zip
+        run: |
+          zip -r release.zip . \
+            -x '.git/*' -x 'tests/*' -x '.env' \
+            -x '.github/*' -x 'phpunit.xml.dist'
+
+      # Attach the zip to a GitHub Release page.
+      # softprops/action-gh-release is a widely-used community action
+      # that handles creating the Release and uploading files.
+      # You don't need to install anything — GitHub downloads it
+      # automatically when the workflow runs.
+      - name: Upload release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release.zip
+```
+
+Once this is set up, tag a release and push it:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+GitHub builds the zip automatically. Your download URL will be:
+
+```
+https://github.com/your-org/your-app/releases/latest/download/release.zip
+```
+
+If you don't use GitHub or don't want automation, just build the zip manually and upload it. The installer doesn't care how the zip got there — it just needs the URL.
+
+---
 
 ## License
 
-Pubvana Installer is licensed under the [Creative Commons Attribution 4.0 International License](https://creativecommons.org/licenses/by/4.0/).
+This project is licensed under the [Creative Commons Attribution 4.0 International License](https://creativecommons.org/licenses/by/4.0/).
 
-Original installer script by EnlivenApp.
+**Required attribution:** "Original script by EnlivenApp"
+
+You are free to use, modify, and distribute this software for any purpose, including commercial use, as long as you include the attribution.
+
+---
+
+## Contributing
+
+Contributions are welcome. Please open an issue to discuss proposed changes before submitting a pull request.
+
+[Report an issue](https://github.com/enlivenapp/CodeIgniter4-Flexible-Web-App-Installer/issues)
