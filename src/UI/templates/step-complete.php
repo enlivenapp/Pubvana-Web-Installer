@@ -46,7 +46,7 @@ $appName          = htmlspecialchars($config['branding']['name'] ?? 'your applic
             <?php else: ?>
                 <p class="font-semibold">Security Notice</p>
                 <p class="text-sm mt-0.5">
-                    Please <strong>delete <code>install.php</code> and <code>installer-config.php</code></strong>
+                    Please <strong>delete <code><?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?></code>, <code><?= htmlspecialchars(pathinfo($scriptName, PATHINFO_FILENAME) . '.zip', ENT_QUOTES, 'UTF-8') ?></code>, and <code>installer-config.php</code></strong>
                     from your server immediately. Leaving them in place is a security risk.
                 </p>
             <?php endif; ?>

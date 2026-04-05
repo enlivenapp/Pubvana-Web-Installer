@@ -65,7 +65,6 @@ class Installer
     private const SESS_CONFIGURATION = 'ci4_installer_configuration';
     private const SESS_APP_SETTINGS  = 'ci4_installer_app_settings';
     private const SESS_ADMIN         = 'ci4_installer_admin';
-    private const SESS_INSTALL_DIR   = 'ci4_installer_install_dir';
     private const SESS_SUBSTEPS      = 'ci4_installer_substeps';
 
     // -------------------------------------------------------------------------
@@ -146,6 +145,12 @@ class Installer
             }
         }
 
+        // Handle AJAX actions that aren't tied to a specific step.
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_GET['action'] ?? '') === 'generate_key') {
+            $this->jsonResponse(['key' => bin2hex(random_bytes(32))]);
+            return;
+        }
+
         // Route to the appropriate handler.
         $html = match ($step) {
             'welcome'       => $this->handleWelcome(),
@@ -214,25 +219,16 @@ class Installer
      */
     private function handleSystemCheck(): string
     {
-        // Use cached environment from session if available.
-        $env = $this->loadEnvFromSession();
-
-        if ($env === null) {
-            $detector = new Detector($this->targetDir);
-            $env      = $detector->detect();
-            $this->saveEnvToSession($env);
-        }
-
-        $this->env = $env;
+        $env = $this->getServerEnvironment();
 
         $requirements = new Requirements($env, $this->config);
         $checks       = $requirements->check();
         $hasBlockers  = $requirements->hasBlockers();
 
         return $this->renderer->render('system-check', [
-            'env'         => $env,
-            'checks'      => $checks,
-            'hasBlockers' => $hasBlockers,
+            'env'          => $env,
+            'requirements' => $checks,
+            'hasBlockers'  => $hasBlockers,
         ]);
     }
 
@@ -256,10 +252,10 @@ class Installer
         $error  = null;
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && $directDriver === null) {
-            $fsMethod = $_POST['fs_method'] ?? '';
-            $host     = trim($_POST['fs_host']     ?? '');
-            $user     = trim($_POST['fs_user']     ?? '');
-            $pass     = $_POST['fs_pass']           ?? '';
+            $fsMethod = $_POST['fs_type']       ?? '';
+            $host     = trim($_POST['fs_hostname'] ?? '');
+            $user     = trim($_POST['fs_username'] ?? '');
+            $pass     = $_POST['fs_password']       ?? '';
             $port     = (int) ($_POST['fs_port']   ?? 0);
 
             try {
@@ -283,7 +279,7 @@ class Installer
                             'port' => $port,
                         ]);
                         $this->fs = $driver;
-                        $method   = $fsMethod;
+                        $this->redirect('database');
                     } else {
                         $error = "Connection succeeded but target directory is not accessible: {$this->targetDir}";
                     }
@@ -303,7 +299,7 @@ class Installer
     /**
      * Database step — collect and test database credentials.
      */
-    private function handleDatabase(): string
+    private function handleDatabase(): ?string
     {
         $env     = $this->getServerEnvironment();
         $error   = null;
@@ -311,7 +307,7 @@ class Installer
         $driver  = $this->getFromSession(self::SESS_DB_DRIVER, '');
         $creds   = $this->getFromSession(self::SESS_DB_CREDS, []);
 
-        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['db_driver'])) {
             $action   = $_POST['action'] ?? 'test';
             $driver   = trim($_POST['db_driver']   ?? '');
             $hostname = trim($_POST['db_hostname']  ?? '127.0.0.1');
@@ -337,7 +333,7 @@ class Installer
 
             $tester = new ConnectionTester();
 
-            if ($action === 'create_db') {
+            if ($action === 'create_database') {
                 $result = $tester->createDatabase($driver, $creds);
                 if ($result->success) {
                     $success = $result->content ?: "Database created successfully.";
@@ -358,8 +354,18 @@ class Installer
                 if ($result->success) {
                     $this->saveToSession(self::SESS_DB_DRIVER, $driver);
                     $this->saveToSession(self::SESS_DB_CREDS, $creds);
-                    $success = 'Connection successful.';
+
+                    // AJAX test: return JSON. Form submit: redirect to next step.
+                    if ($action === 'test_database') {
+                        $this->jsonResponse(['success' => true, 'message' => 'Connection successful.']);
+                        return null;
+                    }
+                    $this->redirect('configuration');
                 } else {
+                    if ($action === 'test_database') {
+                        $this->jsonResponse(['success' => false, 'message' => $result->errorMessage]);
+                        return null;
+                    }
                     $error = $result->errorMessage;
                 }
             }
@@ -378,7 +384,7 @@ class Installer
         }
 
         return $this->renderer->render('database', [
-            'availableDrivers' => $availableDrivers,
+            'availableDrivers' => array_keys($availableDrivers),
             'driver'           => $driver,
             'creds'            => $creds,
             'error'            => $error,
@@ -405,7 +411,7 @@ class Installer
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $baseUrl       = trim($_POST['base_url']        ?? '');
             $environment   = trim($_POST['environment']     ?? 'production');
-            $encryptionKey = trim($_POST['encryption_key']  ?? '');
+            $encryptionKey = trim($_POST['encrypt_key']  ?? '');
 
             // Basic validation.
             if ($baseUrl === '') {
@@ -425,6 +431,7 @@ class Installer
                     'encryption_key' => $encryptionKey,
                 ];
                 $this->saveToSession(self::SESS_CONFIGURATION, $saved);
+                $this->redirect('app-settings');
             }
         }
 
@@ -455,7 +462,8 @@ class Installer
         $saved  = $this->getFromSession(self::SESS_APP_SETTINGS, []);
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $values = [];
+            $envPost = (array) ($_POST['env'] ?? []);
+            $values  = [];
             $missingRequired = [];
 
             foreach ($envVars as $varDef) {
@@ -468,9 +476,9 @@ class Installer
                 }
 
                 if ($type === 'boolean') {
-                    $values[$key] = isset($_POST[$key]) ? 'true' : 'false';
+                    $values[$key] = isset($envPost[$key]) ? 'true' : 'false';
                 } else {
-                    $value = trim($_POST[$key] ?? '');
+                    $value = trim($envPost[$key] ?? '');
 
                     if ($required && $value === '') {
                         $missingRequired[] = $varDef['label'] ?? $key;
@@ -497,6 +505,7 @@ class Installer
             if ($error === null) {
                 $this->saveToSession(self::SESS_APP_SETTINGS, $values);
                 $saved = $values;
+                $this->redirect('admin');
             }
         }
 
@@ -530,14 +539,15 @@ class Installer
         $error   = null;
         $saved   = $this->getFromSession(self::SESS_ADMIN, []);
 
-        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $values  = [];
-            $missing = [];
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['admin'])) {
+            $adminPost = (array) $_POST['admin'];
+            $values    = [];
+            $missing   = [];
 
             foreach ($fields as $field) {
                 $key      = $field['name']     ?? '';
                 $required = $field['required']  ?? true;
-                $value    = trim($_POST[$key]   ?? '');
+                $value    = trim($adminPost[$key] ?? '');
 
                 if ($key === '') {
                     continue;
@@ -552,8 +562,8 @@ class Installer
             }
 
             // Password confirmation check.
-            $password        = $values['password']         ?? '';
-            $passwordConfirm = trim($_POST['password_confirm'] ?? '');
+            $password        = $values['password']                ?? '';
+            $passwordConfirm = trim($adminPost['password_confirm'] ?? '');
 
             if ($password !== '' && $passwordConfirm !== '' && $password !== $passwordConfirm) {
                 $error = 'Passwords do not match.';
@@ -566,6 +576,7 @@ class Installer
             if ($error === null) {
                 $this->saveToSession(self::SESS_ADMIN, $values);
                 $saved = $values;
+                $this->redirect('install');
             }
         }
 
@@ -585,11 +596,21 @@ class Installer
      */
     private function handleInstall(): ?string
     {
+        // Handle manual zip upload.
+        if (! empty($_FILES['manual_zip']['tmp_name'])) {
+            $this->handleManualUpload();
+            return null;
+        }
+
         $substep = $_POST['substep'] ?? $_GET['substep'] ?? null;
 
         if ($substep !== null) {
             // AJAX substep execution.
             @set_time_limit(300);
+
+            // Buffer output — CI4 bootstrap and spark can echo stray text
+            // that would corrupt the JSON response.
+            ob_start();
 
             try {
                 $result = match ((string) $substep) {
@@ -609,6 +630,13 @@ class Installer
                     'success' => false,
                     'message' => 'Unexpected error: ' . $e->getMessage(),
                 ];
+            }
+
+            $strayOutput = ob_get_clean();
+
+            // Append any captured output to failures so the real error is visible.
+            if ($strayOutput !== '' && $strayOutput !== false && empty($result['success'])) {
+                $result['message'] = ($result['message'] ?? 'Unknown error.') . "\n\n" . $strayOutput;
             }
 
             // Mark completion in session so the UI can track status.
@@ -636,34 +664,50 @@ class Installer
     {
         $fs = $this->getFilesystem();
 
-        // Attempt to delete install.php via filesystem abstraction.
-        $installPhp = $this->targetDir . '/install.php';
-        $deleted    = false;
+        // Attempt to delete all installer files.
+        $scriptBase    = basename($_SERVER['SCRIPT_NAME'] ?? 'install.php');
+        $installerFiles = [
+            $this->targetDir . '/' . $scriptBase,
+            $this->targetDir . '/' . pathinfo($scriptBase, PATHINFO_FILENAME) . '.zip',
+            $this->targetDir . '/installer-config.php',
+        ];
 
-        if (file_exists($installPhp)) {
-            $deleteResult = $fs->delete($installPhp);
-            $deleted      = $deleteResult->success;
+        $deleted = true;
+
+        foreach ($installerFiles as $file) {
+            if (file_exists($file)) {
+                $result = $fs->delete($file);
+                if (! $result->success) {
+                    $deleted = false;
+                }
+            }
         }
 
-        // Fallback: create install.lock if delete failed.
+        // Fallback: create install.lock if any deletes failed.
         if (! $deleted) {
             $lockFile = $this->targetDir . '/install.lock';
-            @file_put_contents($lockFile, date('Y-m-d H:i:s') . ' — Installation complete. Delete this file to re-run the installer.');
+            @file_put_contents($lockFile, date('Y-m-d H:i:s') . ' -- Installation complete. Delete this file to re-run the installer.');
         }
 
-        // Remove the temp extraction directory.
-        $this->cleanupExtractedDir();
+        // Build the post-install URL from the base URL before clearing session.
+        $configuration  = $this->getFromSession(self::SESS_CONFIGURATION, []);
+        $baseUrl        = rtrim($configuration['base_url'] ?? $this->detectBaseUrl(), '/');
+        $postInstallUrl = $baseUrl . '/' . ltrim($this->config['post_install_url'] ?? '/', '/');
 
         // Clear session data.
         $this->clearInstallSession();
 
-        $postInstallUrl = $this->config['post_install_url'] ?? '/';
-
-        return $this->renderer->render('complete', [
-            'selfDeleted'    => $deleted,
-            'postInstallUrl' => $postInstallUrl,
-            'branding'       => $this->config['branding'],
+        // Render BEFORE cleanup — templates live inside the extracted directory.
+        $html = $this->renderer->render('complete', [
+            'installerRemoved' => $deleted,
+            'postInstallUrl'   => $postInstallUrl,
+            'branding'         => $this->config['branding'],
         ]);
+
+        // Remove the temp extraction directory after rendering.
+        $this->cleanupExtractedDir();
+
+        return $html;
     }
 
     // -------------------------------------------------------------------------
@@ -675,32 +719,51 @@ class Installer
      */
     private function substepDownload(): array
     {
-        $installDir = $this->getFromSession(self::SESS_INSTALL_DIR);
-
-        // State recovery: if download already completed, skip.
-        if ($installDir !== null && is_dir($installDir) && $this->dirHasFiles($installDir)) {
+        // State recovery: if key files already present, skip.
+        if (file_exists($this->targetDir . '/spark') && is_dir($this->targetDir . '/app')) {
             return ['success' => true, 'message' => 'Skipped — already complete.'];
         }
 
-        $env    = $this->getServerEnvironment();
-        $source = SourceFactory::getBestSource($this->config['source'] ?? [], $env);
+        $env     = $this->getServerEnvironment();
+        $sources = SourceFactory::getAllSources($this->config['source'] ?? []);
 
-        // Create a unique target directory for the download.
-        $targetBase = sys_get_temp_dir() . '/ci4_install_' . md5($this->targetDir . getmypid());
+        // Try each source in priority order until one succeeds.
+        $result = null;
+        $errors = [];
 
-        if (! is_dir($targetBase)) {
-            @mkdir($targetBase, 0755, true);
+        foreach ($sources as $source) {
+            if ($source instanceof \CI4Installer\Source\ManualSource) {
+                continue;
+            }
+
+            if (! $source->canExecute()) {
+                continue;
+            }
+
+            $result = $source->download($this->targetDir);
+
+            if ($result->success) {
+                break;
+            }
+
+            $errors[] = $source->getLabel() . ': ' . $result->errorMessage;
         }
 
-        $result = $source->download($targetBase);
+        if ($result === null || ! $result->success) {
+            $message = ! empty($errors)
+                ? implode("\n", $errors)
+                : 'No download sources available.';
+            $response = ['success' => false, 'message' => $message];
 
-        if (! $result->success) {
-            return ['success' => false, 'message' => $result->errorMessage];
+            // If all automated sources failed, offer manual upload.
+            $zipUrl = $this->config['source']['zip'] ?? '';
+            if ($zipUrl !== '') {
+                $response['manual_upload'] = true;
+                $response['zip_url']       = $zipUrl;
+            }
+
+            return $response;
         }
-
-        $downloadedDir = $result->content ?? $targetBase;
-
-        $this->saveToSession(self::SESS_INSTALL_DIR, $downloadedDir);
 
         return ['success' => true, 'message' => 'Download complete.'];
     }
@@ -710,9 +773,9 @@ class Installer
      */
     private function substepExtract(): array
     {
-        $installDir = $this->getFromSession(self::SESS_INSTALL_DIR);
+        $installDir = $this->targetDir;
 
-        if ($installDir === null || ! is_dir($installDir)) {
+        if (! is_dir($installDir)) {
             return ['success' => false, 'message' => 'No downloaded source found. Please re-run the download step.'];
         }
 
@@ -744,13 +807,13 @@ class Installer
     }
 
     /**
-     * 4c. Validate the downloaded application and run composer install if needed.
+     * 4c. Validate the downloaded application files.
      */
     private function substepValidate(): array
     {
-        $installDir = $this->getFromSession(self::SESS_INSTALL_DIR);
+        $installDir = $this->targetDir;
 
-        if ($installDir === null || ! is_dir($installDir)) {
+        if (! is_dir($installDir)) {
             return ['success' => false, 'message' => 'Source directory not found. Please re-run the download step.'];
         }
 
@@ -784,38 +847,11 @@ class Installer
 
         // Check for vendor directory.
         if (! file_exists($installDir . '/vendor/autoload.php')) {
-            $env = $this->getServerEnvironment();
-
-            if ($env->composerAvailable === 'passed' && $env->execAvailable === 'passed') {
-                // Run composer install.
-                $composerCmd = $env->composerPath ?: 'composer';
-                $targetArg   = escapeshellarg($installDir);
-                $cmd         = "cd {$targetArg} && {$composerCmd} install --no-dev --no-interaction 2>&1";
-
-                $output = [];
-                $code   = 0;
-                @exec($cmd, $output, $code);
-
-                if ($code !== 0) {
-                    return [
-                        'success' => false,
-                        'message' => 'composer install failed: ' . implode("\n", $output),
-                    ];
-                }
-
-                if (! file_exists($installDir . '/vendor/autoload.php')) {
-                    return [
-                        'success' => false,
-                        'message' => 'composer install completed but vendor/autoload.php was not created.',
-                    ];
-                }
-            } else {
-                return [
-                    'success' => false,
-                    'message' => 'vendor/autoload.php is missing and Composer is not available. '
-                        . 'Please use a release package that includes the vendor directory.',
-                ];
-            }
+            return [
+                'success' => false,
+                'message' => 'vendor/autoload.php is missing. '
+                    . 'The release package must include the vendor directory.',
+            ];
         }
 
         return ['success' => true, 'message' => 'Validation complete — all required files present.'];
@@ -828,9 +864,9 @@ class Installer
      */
     private function substepPublicDir(): array
     {
-        $installDir = $this->getFromSession(self::SESS_INSTALL_DIR);
+        $installDir = $this->targetDir;
 
-        if ($installDir === null || ! is_dir($installDir)) {
+        if (! is_dir($installDir)) {
             return ['success' => false, 'message' => 'Source directory not found.'];
         }
 
@@ -977,8 +1013,8 @@ class Installer
             $this->updateIndexPhp($indexFile, $outOfRoot);
         }
 
-        // Update the install dir in session to reflect the new app root.
-        $this->saveToSession(self::SESS_INSTALL_DIR, $outOfRoot);
+        // Update the target dir to reflect the new app root.
+        $this->targetDir = $outOfRoot;
 
         return ['success' => true, 'message' => "App files isolated to {$outOfRoot}. Only public/ contents remain in document root."];
     }
@@ -1119,9 +1155,9 @@ class Installer
      */
     private function substepWriteEnv(): array
     {
-        $installDir = $this->getFromSession(self::SESS_INSTALL_DIR);
+        $installDir = $this->targetDir;
 
-        if ($installDir === null || ! is_dir($installDir)) {
+        if (! is_dir($installDir)) {
             return ['success' => false, 'message' => 'Application directory not found.'];
         }
 
@@ -1153,6 +1189,11 @@ class Installer
 
         if (isset($configuration['encryption_key'])) {
             $values['encryption.key'] = 'hex2bin:' . $configuration['encryption_key'];
+        }
+
+        // Enable forced HTTPS when the server supports it.
+        if ($this->detectHttps()) {
+            $values['app.forceGlobalSecureRequests'] = 'true';
         }
 
         // Database credentials.
@@ -1206,9 +1247,9 @@ class Installer
      */
     private function substepPermissions(): array
     {
-        $installDir = $this->getFromSession(self::SESS_INSTALL_DIR);
+        $installDir = $this->targetDir;
 
-        if ($installDir === null || ! is_dir($installDir)) {
+        if (! is_dir($installDir)) {
             return ['success' => false, 'message' => 'Application directory not found.'];
         }
 
@@ -1231,12 +1272,13 @@ class Installer
                 $created[] = $relPath;
             }
 
-            // Set permissions.
+            // Set permissions recursively on this directory and all subdirectories.
             $chmodResult = $fs->chmod($absPath, $permissions);
             if (! $chmodResult->success) {
                 // Non-fatal on Windows or when using FTP drivers that don't support chmod.
                 $errors[] = "Warning: could not chmod {$relPath}: " . $chmodResult->errorMessage;
             }
+            $this->chmodRecursive($fs, $absPath, $permissions, $errors, $relPath);
         }
 
         if (! empty($errors) && count($errors) === count($writableDirs)) {
@@ -1258,6 +1300,33 @@ class Installer
     }
 
     /**
+     * Recursively chmod all subdirectories within a given path.
+     */
+    private function chmodRecursive(object $fs, string $dirPath, int $permissions, array &$errors, string $relBase): void
+    {
+        $listResult = $fs->listDir($dirPath);
+        if (! $listResult->success) {
+            return;
+        }
+
+        foreach ($listResult->content as $entry) {
+            $absChild = $dirPath . '/' . $entry;
+            $relChild = $relBase . '/' . $entry;
+
+            if (! is_dir($absChild)) {
+                continue;
+            }
+
+            $chmodResult = $fs->chmod($absChild, $permissions);
+            if (! $chmodResult->success) {
+                $errors[] = "Warning: could not chmod {$relChild}: " . $chmodResult->errorMessage;
+            }
+
+            $this->chmodRecursive($fs, $absChild, $permissions, $errors, $relChild);
+        }
+    }
+
+    /**
      * 4g. Run database migrations.
      */
     private function substepMigrations(): array
@@ -1266,9 +1335,9 @@ class Installer
             return ['success' => true, 'message' => 'Skipped — migrations disabled in config.'];
         }
 
-        $installDir = $this->getFromSession(self::SESS_INSTALL_DIR);
+        $installDir = $this->targetDir;
 
-        if ($installDir === null || ! is_dir($installDir)) {
+        if (! is_dir($installDir)) {
             return ['success' => false, 'message' => 'Application directory not found.'];
         }
 
@@ -1318,9 +1387,9 @@ class Installer
             return ['success' => true, 'message' => 'Skipped — no seeder configured.'];
         }
 
-        $installDir = $this->getFromSession(self::SESS_INSTALL_DIR);
+        $installDir = $this->targetDir;
 
-        if ($installDir === null || ! is_dir($installDir)) {
+        if (! is_dir($installDir)) {
             return ['success' => false, 'message' => 'Application directory not found.'];
         }
 
@@ -1369,7 +1438,7 @@ class Installer
             return ['success' => true, 'message' => 'Skipped — no auth system configured.'];
         }
 
-        $installDir  = $this->getFromSession(self::SESS_INSTALL_DIR);
+        $installDir  = $this->targetDir;
         $adminData   = $this->getFromSession(self::SESS_ADMIN, []);
         $dbCreds     = $this->getFromSession(self::SESS_DB_CREDS, []);
 
@@ -1393,6 +1462,58 @@ class Installer
         } catch (Throwable $e) {
             return ['success' => false, 'message' => 'Admin creation failed: ' . $e->getMessage()];
         }
+    }
+
+    /**
+     * Handle a manually uploaded zip file. Moves it into the install directory
+     * so that substepDownload (on retry) or substepExtract can process it.
+     */
+    private function handleManualUpload(): void
+    {
+        $file = $_FILES['manual_zip'];
+
+        if ($file['error'] !== UPLOAD_ERR_OK) {
+            $messages = [
+                UPLOAD_ERR_INI_SIZE   => 'File exceeds the server upload_max_filesize limit.',
+                UPLOAD_ERR_FORM_SIZE  => 'File exceeds the form size limit.',
+                UPLOAD_ERR_PARTIAL    => 'File was only partially uploaded.',
+                UPLOAD_ERR_NO_FILE    => 'No file was uploaded.',
+                UPLOAD_ERR_NO_TMP_DIR => 'Server missing temporary folder.',
+                UPLOAD_ERR_CANT_WRITE => 'Failed to write file to disk.',
+                UPLOAD_ERR_EXTENSION  => 'Upload blocked by a PHP extension.',
+            ];
+            $msg = $messages[$file['error']] ?? 'Unknown upload error.';
+            $this->jsonResponse(['success' => false, 'message' => $msg]);
+            return;
+        }
+
+        // Verify it's a zip.
+        $fh = fopen($file['tmp_name'], 'rb');
+        if ($fh === false) {
+            $this->jsonResponse(['success' => false, 'message' => 'Cannot read uploaded file.']);
+            return;
+        }
+        $magic = fread($fh, 2);
+        fclose($fh);
+
+        if ($magic !== 'PK') {
+            $this->jsonResponse(['success' => false, 'message' => 'Uploaded file is not a valid zip archive.']);
+            return;
+        }
+
+        $destZip = $this->targetDir . '/_uploaded.zip';
+
+        if (! move_uploaded_file($file['tmp_name'], $destZip)) {
+            $this->jsonResponse(['success' => false, 'message' => 'Failed to move uploaded file.']);
+            return;
+        }
+
+        // Mark download as complete so the install flow continues from extract.
+        $completed = $this->getFromSession(self::SESS_SUBSTEPS, []);
+        $completed['download'] = true;
+        $this->saveToSession(self::SESS_SUBSTEPS, $completed);
+
+        $this->jsonResponse(['success' => true, 'message' => 'Upload received.']);
     }
 
     // -------------------------------------------------------------------------
@@ -1429,7 +1550,6 @@ class Installer
             self::SESS_CONFIGURATION,
             self::SESS_APP_SETTINGS,
             self::SESS_ADMIN,
-            self::SESS_INSTALL_DIR,
             self::SESS_SUBSTEPS,
             'csrf_token',
             'ci4_installer_db_attempts',
@@ -1559,19 +1679,19 @@ class Installer
         $completed = $this->getFromSession(self::SESS_SUBSTEPS, []);
 
         $substeps = [
-            ['id' => 'download',    'label' => 'Download Application'],
-            ['id' => 'extract',     'label' => 'Extract Files'],
-            ['id' => 'validate',    'label' => 'Validate Source'],
-            ['id' => 'public_dir',  'label' => 'Configure Public Directory'],
-            ['id' => 'write_env',   'label' => 'Write .env Configuration'],
-            ['id' => 'permissions', 'label' => 'Set File Permissions'],
-            ['id' => 'migrations',  'label' => 'Run Database Migrations'],
-            ['id' => 'seeders',     'label' => 'Run Database Seeders'],
-            ['id' => 'admin',       'label' => 'Create Admin Account'],
+            ['key' => 'download',    'label' => 'Download Application'],
+            ['key' => 'extract',     'label' => 'Extract Files'],
+            ['key' => 'validate',    'label' => 'Validate Source'],
+            ['key' => 'public_dir',  'label' => 'Configure Public Directory'],
+            ['key' => 'write_env',   'label' => 'Write .env Configuration'],
+            ['key' => 'permissions', 'label' => 'Set File Permissions'],
+            ['key' => 'migrations',  'label' => 'Run Database Migrations'],
+            ['key' => 'seeders',     'label' => 'Run Database Seeders'],
+            ['key' => 'admin',       'label' => 'Create Admin Account'],
         ];
 
         foreach ($substeps as &$substep) {
-            $substep['completed'] = isset($completed[$substep['id']]);
+            $substep['completed'] = isset($completed[$substep['key']]);
         }
 
         return $substeps;
@@ -1619,56 +1739,9 @@ class Installer
             return $this->env;
         }
 
-        $env = $this->loadEnvFromSession();
-
-        if ($env === null) {
-            $detector = new Detector($this->targetDir);
-            $env      = $detector->detect();
-            $this->saveEnvToSession($env);
-        }
-
-        $this->env = $env;
+        $detector = new Detector($this->targetDir);
+        $this->env = $detector->detect();
         return $this->env;
-    }
-
-    /**
-     * Attempt to deserialize a ServerEnvironment from the session.
-     * Returns null if not present or corrupted.
-     */
-    private function loadEnvFromSession(): ?ServerEnvironment
-    {
-        $data = $this->getFromSession(self::SESS_ENV);
-
-        if (! is_array($data)) {
-            return null;
-        }
-
-        try {
-            $env = new ServerEnvironment();
-
-            foreach ($data as $key => $value) {
-                if (property_exists($env, $key)) {
-                    $env->{$key} = $value;
-                }
-            }
-
-            return $env;
-        } catch (Throwable) {
-            return null;
-        }
-    }
-
-    /**
-     * Serialize a ServerEnvironment to the session.
-     */
-    private function saveEnvToSession(ServerEnvironment $env): void
-    {
-        // Convert object to array for session serialization.
-        $data = [];
-        foreach (get_object_vars($env) as $key => $value) {
-            $data[$key] = $value;
-        }
-        $this->saveToSession(self::SESS_ENV, $data);
     }
 
     // -------------------------------------------------------------------------
@@ -1908,10 +1981,8 @@ class Installer
      */
     private function cleanupExtractedDir(): void
     {
-        // Only clean up if the extracted dir is inside sys_get_temp_dir().
-        $tmpDir = sys_get_temp_dir();
-
-        if (str_starts_with($this->extractedDir, $tmpDir)) {
+        // Clean up the extracted installer directory (.ci4-installer).
+        if ($this->extractedDir !== '' && is_dir($this->extractedDir) && basename($this->extractedDir) === '.ci4-installer') {
             $this->removeDir($this->extractedDir);
         }
     }
