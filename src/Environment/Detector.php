@@ -60,8 +60,6 @@ class Detector
         $this->detectModRewrite($env);
         $this->detectExec($env);
         $this->detectShellExec($env);
-        $this->detectComposer($env);
-        $this->detectGit($env);
         $this->detectFilesystemMethod($env);
         $this->detectDbDrivers($env);
         $this->detectTargetDirWritable($env);
@@ -291,94 +289,6 @@ class Detector
         } catch (Throwable) {
             $env->shellExecAvailable = 'failed';
         }
-    }
-
-    /**
-     * Detect Composer availability via exec().
-     * On Windows also tries composer.bat.
-     */
-    private function detectComposer(ServerEnvironment $env): void
-    {
-        if ($env->execAvailable !== 'passed') {
-            $env->composerAvailable = 'unknown';
-            return;
-        }
-
-        $candidates = ['composer'];
-        if ($env->isWindows) {
-            $candidates[] = 'composer.bat';
-            $candidates[] = 'composer.phar';
-        }
-
-        foreach ($candidates as $cmd) {
-            try {
-                $output = [];
-                $return = 0;
-                @exec("{$cmd} --version 2>&1", $output, $return);
-                $outputStr = implode(' ', $output);
-
-                if ($return === 0 && str_contains(strtolower($outputStr), 'composer')) {
-                    $env->composerAvailable = 'passed';
-                    $env->composerPath      = $cmd;
-                    return;
-                }
-            } catch (Throwable) {
-                // try next candidate
-            }
-        }
-
-        // Try to locate the binary path explicitly
-        try {
-            $whichCmd = $env->isWindows ? 'where composer 2>&1' : 'which composer 2>&1';
-            $output   = [];
-            @exec($whichCmd, $output);
-            $path = trim(implode('', $output));
-
-            if ($path !== '' && ! str_contains(strtolower($path), 'not found') && ! str_contains(strtolower($path), 'could not find')) {
-                // Found via which/where but version check failed — still mark found
-                $env->composerAvailable = 'passed';
-                $env->composerPath      = $path;
-                return;
-            }
-        } catch (Throwable) {
-            // fall through
-        }
-
-        $env->composerAvailable = 'failed';
-    }
-
-    /**
-     * Detect Git availability via exec().
-     * Uses 'where git' on Windows, 'which git' on Unix.
-     */
-    private function detectGit(ServerEnvironment $env): void
-    {
-        if ($env->execAvailable !== 'passed') {
-            $env->gitAvailable = 'unknown';
-            return;
-        }
-
-        try {
-            $output = [];
-            $return = 0;
-            @exec('git --version 2>&1', $output, $return);
-            $outputStr = implode(' ', $output);
-
-            if ($return === 0 && str_contains(strtolower($outputStr), 'git version')) {
-                $env->gitAvailable = 'passed';
-
-                // Resolve path
-                $locateCmd = $env->isWindows ? 'where git 2>&1' : 'which git 2>&1';
-                $pathOut   = [];
-                @exec($locateCmd, $pathOut);
-                $env->gitPath = trim(implode('', $pathOut));
-                return;
-            }
-        } catch (Throwable) {
-            // fall through
-        }
-
-        $env->gitAvailable = 'failed';
     }
 
     /**

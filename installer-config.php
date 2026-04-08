@@ -5,14 +5,16 @@
  * Customize this file for your CodeIgniter 4 application.
  * See the README for full documentation of all options.
  */
+$version = '2.3.1';
+
 return [
     // --- Branding ---
     'branding' => [
-        'name'          => 'Pubvana',
-        'version'       => '2.2.1',
+        'name'          => 'Pubvana CMS',
+        'version'       => $version,
         'logo'          => 'https://cdn.pubvana.net/pubvana_logo.png',
         'support_url'   => 'https://pubvana.net/contact',
-        'support_email' => '',
+        'support_email' => 'cs@pubvana.net',
         'welcome_text'  => 'Welcome to the Pubvana Installer',  // empty = auto-generated from app name
         'colors'        => [
             'primary'   => '#0f172a',
@@ -28,9 +30,7 @@ return [
     // --- Download Source ---
     // source.zip is REQUIRED. composer and git are optional enhancements.
     'source' => [
-        'composer' => 'enlivenapp/pubvana',
-        'git'      => 'https://github.com/enlivenapp/pubvana.git',
-        'zip'      => 'https://github.com/enlivenapp/pubvana/archive/refs/heads/main.zip',
+        'zip' => "https://github.com/enlivenapp/pubvana/releases/download/v{$version}/release.zip",
     ],
 
     // --- Server Requirements ---
@@ -47,6 +47,12 @@ return [
         'writable/session',
         'writable/uploads',
         'writable/tmp',
+        'writable/backups',
+        'writable/updates',
+        'public/assets',
+        'public/images',
+        'public/plugins',
+        'public/themes',
     ],
     'writable_dir_permissions' => 0755,
 
@@ -75,7 +81,7 @@ return [
     ],
 
     // --- Authentication ---
-    // system: shield, ion_auth, myth_auth, custom, none
+    // system: shield, custom, none
     'auth' => [
         'system'  => 'shield',
         'collect' => ['username', 'email', 'password'],

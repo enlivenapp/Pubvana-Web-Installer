@@ -13,8 +13,6 @@ class ConfigValidator
 
     private const ALLOWED_AUTH_SYSTEMS = [
         'shield',
-        'ion_auth',
-        'myth_auth',
         'custom',
         'none',
     ];
@@ -105,8 +103,8 @@ class ConfigValidator
                 }
             }
 
-            // auth.system in (shield, ion_auth, myth_auth)  →  auth.group required
-            if (in_array($authSystem, ['shield', 'ion_auth', 'myth_auth'], true)) {
+            // auth.system = 'shield'  →  auth.group required
+            if ($authSystem === 'shield') {
                 $authGroup = $config['auth']['group'] ?? null;
 
                 if (! is_string($authGroup) || trim($authGroup) === '') {

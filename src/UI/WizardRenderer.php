@@ -40,10 +40,12 @@ class WizardRenderer
 
         // Render the inner step template first.
         $templateFile = $this->templateDir . DIRECTORY_SEPARATOR . 'step-' . $step . '.php';
+        $scriptName = basename($_SERVER['SCRIPT_NAME'] ?? 'install.php');
         $innerContent = $this->renderTemplate($templateFile, array_merge($data, [
-            'config'    => $this->config,
-            'csrfToken' => $this->getCsrfToken(),
-            'step'      => $step,
+            'config'     => $this->config,
+            'csrfToken'  => $this->getCsrfToken(),
+            'step'       => $step,
+            'scriptName' => $scriptName,
         ]));
 
         // Wrap in the full layout.

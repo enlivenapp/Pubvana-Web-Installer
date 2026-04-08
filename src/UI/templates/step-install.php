@@ -137,7 +137,7 @@ $errorsJson    = json_encode($errors);
             <span>All installation steps completed successfully!</span>
         </div>
         <div class="flex justify-end">
-            <a href="install.php?step=complete" class="btn btn-primary gap-2">
+            <a href="<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>?step=complete" class="btn btn-primary gap-2">
                 Finish
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
@@ -154,13 +154,42 @@ $errorsJson    = json_encode($errors);
             <div>
                 <p class="font-semibold">Installation step failed.</p>
                 <p class="text-sm" x-text="currentError"></p>
-                <p class="text-sm mt-1">
+                <p class="text-sm mt-1" x-show="!manualUpload">
                     You may retry the failed step, or
-                    <a href="install.php?step=admin" class="link">go back</a>
+                    <a href="<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>?step=admin" class="link">go back</a>
                     and check your settings.
                 </p>
             </div>
         </div>
+
+        <!-- Manual upload form (shown when download fails) -->
+        <div x-show="manualUpload" class="mb-4">
+            <div class="border border-base-300 rounded-lg p-4 bg-base-50">
+                <p class="text-sm font-medium mb-1">Upload Release Zip</p>
+                <p class="text-xs text-base-content/60 mb-3" x-show="manualZipUrl">
+                    Download from: <a :href="manualZipUrl" x-text="manualZipUrl" target="_blank" class="link link-primary break-all"></a>
+                </p>
+                <div class="flex items-end gap-2">
+                    <input
+                        type="file"
+                        accept=".zip"
+                        class="file-input file-input-bordered file-input-sm w-full max-w-xs"
+                        @change="manualFile = $event.target.files[0]"
+                    >
+                    <button
+                        type="button"
+                        class="btn btn-primary btn-sm gap-1"
+                        :disabled="!manualFile || uploading"
+                        @click="uploadManualZip()"
+                    >
+                        <span x-show="!uploading">Upload</span>
+                        <span x-show="uploading" class="loading loading-spinner loading-xs"></span>
+                    </button>
+                </div>
+                <p x-show="uploadError" class="text-xs text-error mt-2" x-text="uploadError"></p>
+            </div>
+        </div>
+
         <button
             type="button"
             class="btn btn-warning gap-2"
@@ -200,9 +229,9 @@ $errorsJson    = json_encode($errors);
             <p class="font-medium text-sm mb-3">
                 Next: <?= htmlspecialchars($nextNoJsStep['label'], ENT_QUOTES, 'UTF-8') ?>
             </p>
-            <form method="POST" action="install.php">
+            <form method="POST" action="<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>">
                 <input type="hidden" name="step"       value="install">
-                <input type="hidden" name="action"     value="<?= htmlspecialchars($nextNoJsStep['action'], ENT_QUOTES, 'UTF-8') ?>">
+                <input type="hidden" name="substep"    value="<?= htmlspecialchars($nextNoJsStep['key'], ENT_QUOTES, 'UTF-8') ?>">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
                 <button type="submit" class="btn btn-primary">
                     Run Step &rarr;
@@ -212,7 +241,7 @@ $errorsJson    = json_encode($errors);
     <?php else: ?>
         <div class="mt-4">
             <div class="alert alert-success">All steps complete.</div>
-            <a href="install.php?step=complete" class="btn btn-primary mt-3">Finish</a>
+            <a href="<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>?step=complete" class="btn btn-primary mt-3">Finish</a>
         </div>
     <?php endif; ?>
 </noscript>
@@ -227,6 +256,11 @@ function installWizard() {
         currentKey:  null,
         currentError: '',
         csrfToken:   <?= json_encode($csrfToken) ?>,
+        manualUpload: false,
+        manualZipUrl: '',
+        manualFile:   null,
+        uploading:    false,
+        uploadError:  '',
 
         init() {
             // If some steps are already done (page reload after partial failure), resume
@@ -282,11 +316,11 @@ function installWizard() {
         async runStep(sub) {
             try {
                 const body = new URLSearchParams({
-                    action:     sub.action,
+                    substep:    sub.key,
                     step:       'install',
                     csrf_token: this.csrfToken,
                 });
-                const resp = await fetch('install.php', {
+                const resp = await fetch('<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body:   body.toString(),
@@ -295,6 +329,10 @@ function installWizard() {
                 if (! json.success) {
                     this.errors[sub.key]  = json.message ?? 'Unknown error.';
                     this.currentError     = this.errors[sub.key];
+                    if (json.manual_upload) {
+                        this.manualUpload = true;
+                        this.manualZipUrl = json.zip_url ?? '';
+                    }
                     return false;
                 }
                 return true;
@@ -305,11 +343,50 @@ function installWizard() {
             }
         },
 
+        async uploadManualZip() {
+            if (!this.manualFile) return;
+            this.uploading   = true;
+            this.uploadError = '';
+
+            try {
+                const form = new FormData();
+                form.append('manual_zip', this.manualFile);
+                form.append('step', 'install');
+                form.append('csrf_token', this.csrfToken);
+
+                const resp = await fetch('<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>', {
+                    method: 'POST',
+                    body:   form,
+                });
+                const json = await resp.json();
+
+                if (!json.success) {
+                    this.uploadError = json.message ?? 'Upload failed.';
+                    return;
+                }
+
+                // Upload succeeded — mark download done and continue.
+                this.completed['download'] = true;
+                this.manualUpload = false;
+                this.manualFile   = null;
+                delete this.errors['download'];
+                this.currentError = '';
+                this.startInstall();
+            } catch (e) {
+                this.uploadError = 'Upload error: ' + e.message;
+            } finally {
+                this.uploading = false;
+            }
+        },
+
         retry() {
             if (this.currentKey) {
                 delete this.errors[this.currentKey];
             }
             this.currentError = '';
+            this.manualUpload = false;
+            this.manualFile   = null;
+            this.uploadError  = '';
             this.startInstall();
         },
     };

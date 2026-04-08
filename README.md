@@ -112,9 +112,9 @@ Controls admin user creation during installation.
 
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
-| `system` | string | No (default: `'none'`) | Auth library. Options: `shield`, `ion_auth`, `myth_auth`, `custom`, `none`. |
+| `system` | string | No (default: `'none'`) | Auth library. Options: `shield`, `custom`, `none`. |
 | `collect` | array | If system is not `none` | Fields to show in the wizard. Example: `['username', 'email', 'password']` |
-| `group` | string | For shield/ion_auth/myth_auth | Group or role to assign the admin. Example: `'superadmin'` |
+| `group` | string | For shield | Group or role to assign the admin. Example: `'superadmin'` |
 
 **For `custom` auth systems**, additional keys are required:
 
@@ -323,7 +323,7 @@ php build/pack.php
 
 ## Auth Adapters
 
-The installer supports five auth systems:
+The installer supports three auth systems:
 
 ### Shield (CodeIgniter Shield)
 
@@ -335,31 +335,7 @@ The installer supports five auth systems:
 ],
 ```
 
-Creates the user via Shield's UserModel and assigns the specified group.
-
-### IonAuth
-
-```php
-'auth' => [
-    'system'  => 'ion_auth',
-    'collect' => ['username', 'email', 'password'],
-    'group'   => 'admin',
-],
-```
-
-Uses IonAuth's register() method and group assignment.
-
-### Myth:Auth
-
-```php
-'auth' => [
-    'system'  => 'myth_auth',
-    'collect' => ['email', 'password'],
-    'group'   => 'admin',
-],
-```
-
-Creates a user entity via Myth:Auth's UserModel.
+Creates the admin user via direct SQL inserts into Shield's `users`, `auth_identities`, and `auth_groups_users` tables.
 
 ### Generic (Custom Auth)
 

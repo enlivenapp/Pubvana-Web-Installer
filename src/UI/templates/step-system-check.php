@@ -116,7 +116,7 @@ $failed   = array_filter($requirements, fn($r) => $r['status'] === 'failed');
 
 <!-- Navigation -->
 <div class="flex justify-between pt-2">
-    <form method="POST" action="install.php">
+    <form method="POST" action="<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>">
         <input type="hidden" name="step"       value="welcome">
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
         <button type="submit" class="btn btn-ghost gap-2">
@@ -127,7 +127,7 @@ $failed   = array_filter($requirements, fn($r) => $r['status'] === 'failed');
         </button>
     </form>
 
-    <form method="POST" action="install.php">
+    <form method="POST" action="<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>">
         <input type="hidden" name="step"       value="filesystem">
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
         <button

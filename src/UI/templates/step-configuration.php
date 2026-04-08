@@ -20,10 +20,10 @@ $prevKey         = $_POST['encrypt_key']  ?? $encryptionKey;
 
 <div
     x-data="{
-        encKey: <?= json_encode($prevKey) ?>,
+        encKey: '<?= htmlspecialchars($prevKey, ENT_QUOTES, 'UTF-8') ?>',
         async regenerateKey() {
             try {
-                const resp = await fetch('install.php?action=generate_key', {
+                const resp = await fetch('<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>?action=generate_key', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: 'csrf_token=<?= urlencode($csrfToken) ?>'
@@ -40,8 +40,8 @@ $prevKey         = $_POST['encrypt_key']  ?? $encryptionKey;
         }
     }"
 >
-    <form method="POST" action="install.php" id="config-form">
-        <input type="hidden" name="step"       value="app-settings">
+    <form method="POST" action="<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>" id="config-form">
+        <input type="hidden" name="step"       value="configuration">
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
 
         <?php if ($error): ?>
@@ -138,7 +138,7 @@ $prevKey         = $_POST['encrypt_key']  ?? $encryptionKey;
 
         <!-- Navigation -->
         <div class="flex justify-between pt-2 border-t border-base-200">
-            <a href="install.php?step=database" class="btn btn-ghost gap-2">
+            <a href="<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>?step=database" class="btn btn-ghost gap-2">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
                 </svg>

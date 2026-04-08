@@ -42,7 +42,7 @@ $hasSsh2 = extension_loaded('ssh2');
     </div>
 
     <div class="flex justify-between pt-4">
-        <form method="POST" action="install.php">
+        <form method="POST" action="<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>">
             <input type="hidden" name="step"       value="system-check">
             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
             <button type="submit" class="btn btn-ghost gap-2">
@@ -52,7 +52,7 @@ $hasSsh2 = extension_loaded('ssh2');
                 Back
             </button>
         </form>
-        <form method="POST" action="install.php">
+        <form method="POST" action="<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>">
             <input type="hidden" name="step"            value="database">
             <input type="hidden" name="csrf_method"     value="direct">
             <input type="hidden" name="csrf_token"      value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
@@ -113,7 +113,7 @@ $hasSsh2 = extension_loaded('ssh2');
                     const form = this.$el.querySelector('form');
                     const data = new FormData(form);
                     data.set('action', 'test_filesystem');
-                    const resp = await fetch('install.php', { method: 'POST', body: data });
+                    const resp = await fetch('<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>', { method: 'POST', body: data });
                     const json = await resp.json();
                     this.testResult  = json.success ? 'success' : 'error';
                     this.testMessage = json.message  ?? (json.success ? 'Connection successful!' : 'Connection failed.');
@@ -126,8 +126,8 @@ $hasSsh2 = extension_loaded('ssh2');
             }
         }"
     >
-        <form method="POST" action="install.php" id="fs-form">
-            <input type="hidden" name="step"       value="database">
+        <form method="POST" action="<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>" id="fs-form">
+            <input type="hidden" name="step"       value="filesystem">
             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
 
             <!-- Connection type -->
@@ -243,7 +243,7 @@ $hasSsh2 = extension_loaded('ssh2');
             <!-- Actions -->
             <div class="flex flex-wrap justify-between gap-3 pt-2">
                 <div class="flex gap-2">
-                    <form method="POST" action="install.php" style="display:inline">
+                    <form method="POST" action="<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>" style="display:inline">
                         <input type="hidden" name="step"       value="system-check">
                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
                         <button type="submit" class="btn btn-ghost gap-2">

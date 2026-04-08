@@ -143,56 +143,14 @@ class MigrationRunner
             return;
         }
 
-        $appRoot = $this->appRoot;
-
-        // Define CI4's required path constants (only if not already defined).
-        if (! defined('ROOTPATH')) {
-            define('ROOTPATH', $appRoot . DIRECTORY_SEPARATOR);
+        require_once $this->appRoot . '/vendor/autoload.php';
+        require_once $this->appRoot . '/app/Config/Paths.php';
+        $paths = new \Config\Paths();
+        if (! defined('ENVIRONMENT')) {
+            define('ENVIRONMENT', $_ENV['CI_ENVIRONMENT'] ?? $_SERVER['CI_ENVIRONMENT'] ?? 'production');
         }
-
-        if (! defined('APPPATH')) {
-            define('APPPATH', $appRoot . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR);
-        }
-
-        if (! defined('WRITABLEPATH')) {
-            define('WRITABLEPATH', $appRoot . DIRECTORY_SEPARATOR . 'writable' . DIRECTORY_SEPARATOR);
-        }
-
-        if (! defined('SYSTEMPATH')) {
-            $systemPath = $appRoot . '/vendor/codeigniter4/framework/system/';
-
-            if (! is_dir($systemPath)) {
-                // Some installations use the split package name.
-                $systemPath = $appRoot . '/vendor/codeigniter4/codeigniter4/system/';
-            }
-
-            if (! is_dir($systemPath)) {
-                throw new \RuntimeException(
-                    "CI4 system path not found. Checked:\n"
-                    . "  {$appRoot}/vendor/codeigniter4/framework/system/\n"
-                    . "  {$appRoot}/vendor/codeigniter4/codeigniter4/system/\n"
-                    . 'Ensure Composer dependencies are installed.'
-                );
-            }
-
-            define('SYSTEMPATH', $systemPath);
-        }
-
-        // Load CI4's bootstrap utility (registers autoloaders, helpers, etc.).
-        $bootstrapFile = SYSTEMPATH . 'bootstrap.php';
-
-        if (! file_exists($bootstrapFile)) {
-            // Older CI4 versions used a different file name.
-            $bootstrapFile = SYSTEMPATH . 'util_bootstrap.php';
-        }
-
-        if (! file_exists($bootstrapFile)) {
-            throw new \RuntimeException(
-                "CI4 bootstrap file not found at '{$bootstrapFile}'."
-            );
-        }
-
-        require_once $bootstrapFile;
+        require_once $paths->systemDirectory . '/Boot.php';
+        \CodeIgniter\Boot::bootConsole($paths);
 
         $this->bootstrapped = true;
     }

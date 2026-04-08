@@ -47,8 +47,6 @@ class Requirements
         $this->checkOutboundHttp($results);
         $this->checkTargetDirWritable($results);
         $this->checkHttps($results);
-        $this->checkComposer($results);
-        $this->checkGit($results);
         $this->checkModRewrite($results);
         $this->checkFilesystem($results);
         $this->checkDisabledFunctions($results);
@@ -355,74 +353,6 @@ class Requirements
                 'label'  => 'HTTPS',
                 'status' => 'warning',
                 'detail' => 'Not detected — installer and admin credentials may be transmitted in plaintext',
-            ];
-        }
-    }
-
-    /**
-     * Report Composer availability.
-     *
-     * @param array<int, array{label: string, status: string, detail: string}> $results
-     */
-    private function checkComposer(array &$results): void
-    {
-        $status = $this->env->composerAvailable;
-
-        if ($status === 'passed') {
-            $detail = 'Found';
-            if ($this->env->composerPath !== '') {
-                $detail .= " at {$this->env->composerPath}";
-            }
-            $results[] = [
-                'label'  => 'Composer',
-                'status' => 'passed',
-                'detail' => $detail,
-            ];
-        } elseif ($status === 'failed') {
-            $results[] = [
-                'label'  => 'Composer',
-                'status' => 'warning',
-                'detail' => 'Not found — dependency installation may require manual steps',
-            ];
-        } else {
-            $results[] = [
-                'label'  => 'Composer',
-                'status' => 'warning',
-                'detail' => 'Could not be determined',
-            ];
-        }
-    }
-
-    /**
-     * Report Git availability.
-     *
-     * @param array<int, array{label: string, status: string, detail: string}> $results
-     */
-    private function checkGit(array &$results): void
-    {
-        $status = $this->env->gitAvailable;
-
-        if ($status === 'passed') {
-            $detail = 'Found';
-            if ($this->env->gitPath !== '') {
-                $detail .= " at {$this->env->gitPath}";
-            }
-            $results[] = [
-                'label'  => 'Git',
-                'status' => 'passed',
-                'detail' => $detail,
-            ];
-        } elseif ($status === 'failed') {
-            $results[] = [
-                'label'  => 'Git',
-                'status' => 'warning',
-                'detail' => 'Not found — source control features will be unavailable',
-            ];
-        } else {
-            $results[] = [
-                'label'  => 'Git',
-                'status' => 'warning',
-                'detail' => 'Could not be determined',
             ];
         }
     }

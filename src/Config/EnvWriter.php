@@ -217,7 +217,7 @@ class EnvWriter
             $str = '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $str) . '"';
         }
 
-        return "{$key}={$str}";
+        return "{$key} = {$str}";
     }
 
     /**

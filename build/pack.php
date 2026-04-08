@@ -194,6 +194,8 @@ function generateStub(string $base64Archive): string
 // Creative Commons License — Original script by EnlivenApp
 // https://creativecommons.org/licenses/by/4.0/
 
+const INSTALLER_ARCHIVE = \'' . $base64Archive . '\';
+
 if (file_exists(__DIR__ . \'/install.lock\')) {
     die(\'Installation already completed. Delete install.lock to re-run.\');
 }
@@ -210,61 +212,71 @@ if (file_exists(__DIR__ . \'/installer-config.php\')) {
     unset($__cfg);
 }
 
-$tmp = sys_get_temp_dir() . DIRECTORY_SEPARATOR . \'ci4-installer-\' . md5(__DIR__);
+$tmp = __DIR__ . DIRECTORY_SEPARATOR . \'.ci4-installer\';
 
-if (!is_dir($tmp)) {
-    $archive = base64_decode(INSTALLER_ARCHIVE);
-    $archivePath = $tmp . \'.tar.gz\';
-
-    if (!@mkdir($tmp, 0755, true)) {
-        die(\'Could not create temporary directory. \' . $supportMessage);
+// Always extract fresh — remove any previous extraction first.
+if (is_dir($tmp)) {
+    $rmIter = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($tmp, RecursiveDirectoryIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST
+    );
+    foreach ($rmIter as $item) {
+        $item->isDir() ? @rmdir($item->getPathname()) : @unlink($item->getPathname());
     }
+    @rmdir($tmp);
+}
 
-    if (file_put_contents($archivePath, $archive) === false) {
-        @rmdir($tmp);
-        die(\'Could not write temporary archive. \' . $supportMessage);
+$archive = base64_decode(INSTALLER_ARCHIVE);
+$archivePath = $tmp . \'.tar.gz\';
+
+if (!@mkdir($tmp, 0755, true)) {
+    die(\'Could not create temporary directory. \' . $supportMessage);
+}
+
+if (file_put_contents($archivePath, $archive) === false) {
+    @rmdir($tmp);
+    die(\'Could not write temporary archive. \' . $supportMessage);
+}
+
+$extracted = false;
+
+// Method 1: PharData (available in most PHP builds)
+if (!$extracted && extension_loaded(\'phar\')) {
+    try {
+        $phar = new PharData($archivePath);
+        $phar->extractTo($tmp, null, true);
+        $extracted = true;
+    } catch (Exception $e) {
+        // Fall through to next method
     }
+}
 
-    $extracted = false;
-
-    // Method 1: PharData (available in most PHP builds)
-    if (!$extracted && extension_loaded(\'phar\')) {
-        try {
-            $phar = new PharData($archivePath);
-            $phar->extractTo($tmp, null, true);
+// Method 2: exec(\'tar\')
+if (!$extracted && function_exists(\'exec\')) {
+    $disabled = array_map(\'trim\', explode(\',\', ini_get(\'disable_functions\')));
+    if (!in_array(\'exec\', $disabled, true)) {
+        @exec(
+            \'tar -xzf \' . escapeshellarg($archivePath) . \' -C \' . escapeshellarg($tmp) . \' 2>&1\',
+            $output,
+            $returnCode
+        );
+        if ($returnCode === 0) {
             $extracted = true;
-        } catch (Exception $e) {
-            // Fall through to next method
         }
     }
+}
 
-    // Method 2: exec(\'tar\')
-    if (!$extracted && function_exists(\'exec\')) {
-        $disabled = array_map(\'trim\', explode(\',\', ini_get(\'disable_functions\')));
-        if (!in_array(\'exec\', $disabled, true)) {
-            @exec(
-                \'tar -xzf \' . escapeshellarg($archivePath) . \' -C \' . escapeshellarg($tmp) . \' 2>&1\',
-                $output,
-                $returnCode
-            );
-            if ($returnCode === 0) {
-                $extracted = true;
-            }
-        }
-    }
+// Method 3: Pure PHP tar.gz parser (last resort)
+if (!$extracted) {
+    $extracted = ci4InstallerPurePHPExtract($archivePath, $tmp);
+}
 
-    // Method 3: Pure PHP tar.gz parser (last resort)
-    if (!$extracted) {
-        $extracted = ci4InstallerPurePHPExtract($archivePath, $tmp);
-    }
+@unlink($archivePath);
 
-    @unlink($archivePath);
-
-    if (!$extracted) {
-        // Clean up failed extraction
-        @rmdir($tmp);
-        die(\'Could not extract installer archive. \' . $supportMessage);
-    }
+if (!$extracted) {
+    // Clean up failed extraction
+    @rmdir($tmp);
+    die(\'Could not extract installer archive. \' . $supportMessage);
 }
 
 // Boot the installer
@@ -351,7 +363,6 @@ function ci4InstallerPurePHPExtract(string $archivePath, string $destDir): bool
     return true;
 }
 
-const INSTALLER_ARCHIVE = \'' . $base64Archive . '\';
 ';
 }
 

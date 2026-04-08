@@ -50,13 +50,13 @@ $getValue = function (array $def): string {
         </div>
     </div>
     <div class="flex justify-between pt-4">
-        <a href="install.php?step=configuration" class="btn btn-ghost gap-2">
+        <a href="<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>?step=configuration" class="btn btn-ghost gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
             </svg>
             Back
         </a>
-        <form method="POST" action="install.php">
+        <form method="POST" action="<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>">
             <input type="hidden" name="step"       value="admin">
             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
             <button type="submit" class="btn btn-primary gap-2">
@@ -78,8 +78,8 @@ $getValue = function (array $def): string {
         </div>
     <?php endif; ?>
 
-    <form method="POST" action="install.php">
-        <input type="hidden" name="step"       value="admin">
+    <form method="POST" action="<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>">
+        <input type="hidden" name="step"       value="app-settings">
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
 
         <?php foreach ($groups as $groupName => $vars): ?>
@@ -210,7 +210,7 @@ $getValue = function (array $def): string {
 
         <!-- Navigation -->
         <div class="flex justify-between pt-4 border-t border-base-200">
-            <a href="install.php?step=configuration" class="btn btn-ghost gap-2">
+            <a href="<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>?step=configuration" class="btn btn-ghost gap-2">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
                 </svg>

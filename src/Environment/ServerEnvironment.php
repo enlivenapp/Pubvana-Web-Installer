@@ -48,18 +48,6 @@ class ServerEnvironment
     /** 'passed' | 'failed' | 'unknown' */
     public string $shellExecAvailable = 'unknown';
 
-    /** 'passed' | 'failed' | 'unknown' */
-    public string $composerAvailable = 'unknown';
-
-    /** Path to the composer binary if found */
-    public string $composerPath = '';
-
-    /** 'passed' | 'failed' | 'unknown' */
-    public string $gitAvailable = 'unknown';
-
-    /** Path to the git binary if found */
-    public string $gitPath = '';
-
     /** 'direct' | 'ftp' | 'ftps' | 'ssh2' | 'unknown' */
     public string $filesystemMethod = 'unknown';
 

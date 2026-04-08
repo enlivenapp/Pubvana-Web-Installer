@@ -55,7 +55,7 @@ $serverDrivers = ['MySQLi', 'Postgre', 'SQLSRV'];
                 const form = document.getElementById('db-form');
                 const data = new FormData(form);
                 data.set('action', 'test_database');
-                const resp = await fetch('install.php', { method: 'POST', body: data });
+                const resp = await fetch('<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>', { method: 'POST', body: data });
                 const json = await resp.json();
                 this.testResult  = json.success ? 'success' : 'error';
                 this.testMessage = json.message  ?? (json.success ? 'Connection successful!' : 'Connection failed.');
@@ -75,7 +75,7 @@ $serverDrivers = ['MySQLi', 'Postgre', 'SQLSRV'];
                 const form = document.getElementById('db-form');
                 const data = new FormData(form);
                 data.set('action', 'create_database');
-                const resp = await fetch('install.php', { method: 'POST', body: data });
+                const resp = await fetch('<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>', { method: 'POST', body: data });
                 const json = await resp.json();
                 this.createResult  = json.success ? 'success' : 'error';
                 this.createMessage = json.message  ?? (json.success ? 'Database created!' : 'Could not create database.');
@@ -88,8 +88,8 @@ $serverDrivers = ['MySQLi', 'Postgre', 'SQLSRV'];
         }
     }"
 >
-    <form method="POST" action="install.php" id="db-form">
-        <input type="hidden" name="step"       value="configuration">
+    <form method="POST" action="<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>" id="db-form">
+        <input type="hidden" name="step"       value="database">
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
 
         <?php if ($rateLimited): ?>
@@ -296,7 +296,7 @@ $serverDrivers = ['MySQLi', 'Postgre', 'SQLSRV'];
         <div class="flex flex-wrap justify-between gap-3 pt-2 border-t border-base-200 mt-2">
             <div class="flex gap-2">
                 <!-- Back -->
-                <a href="install.php?step=filesystem" class="btn btn-ghost gap-2">
+                <a href="<?= htmlspecialchars($scriptName, ENT_QUOTES, 'UTF-8') ?>?step=filesystem" class="btn btn-ghost gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
                     </svg>

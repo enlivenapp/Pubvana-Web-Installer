@@ -7,9 +7,8 @@ use CI4Installer\Result;
 /**
  * Downloads a zip archive via the cURL PHP extension, then extracts it.
  *
- * Supports chunked/resume downloads: if a previous partial download was
- * recorded in the session, a Range header is added so the server can pick up
- * where it left off.
+ * All work (download, extraction) happens inside the target directory
+ * to avoid cross-device rename failures.
  */
 class CurlSource implements SourceInterface
 {
@@ -38,26 +37,19 @@ class CurlSource implements SourceInterface
             return Result::fail('The cURL PHP extension is not available.');
         }
 
-        // --- 1. Prepare temp paths ---
-        $tmpDir  = sys_get_temp_dir();
-        $zipPath = $tmpDir . DIRECTORY_SEPARATOR . 'ci4installer_' . md5($this->zipUrl) . '.zip';
-
-        // --- 2. Determine resume offset from session ---
-        $resumeFrom = 0;
-        if (session_status() === PHP_SESSION_ACTIVE) {
-            $sessionKey = 'ci4installer_dl_bytes_' . md5($this->zipUrl);
-            $resumeFrom = isset($_SESSION[$sessionKey]) ? (int) $_SESSION[$sessionKey] : 0;
+        if (!is_dir($targetDir)) {
+            mkdir($targetDir, 0755, true);
         }
 
-        // --- 3. Open temp file for writing (append if resuming) ---
-        $fileMode = ($resumeFrom > 0 && file_exists($zipPath)) ? 'ab' : 'wb';
-        $fh = fopen($zipPath, $fileMode);
+        // --- 1. Download zip into target dir ---
+        $zipPath = $targetDir . DIRECTORY_SEPARATOR . '_download.zip';
+
+        $fh = fopen($zipPath, 'wb');
 
         if ($fh === false) {
-            return Result::fail('Unable to open temp file for writing: ' . $zipPath);
+            return Result::fail('Unable to open file for writing: ' . $zipPath);
         }
 
-        // --- 4. Init cURL ---
         $ch = curl_init();
 
         curl_setopt_array($ch, [
@@ -70,135 +62,45 @@ class CurlSource implements SourceInterface
             CURLOPT_USERAGENT      => 'CI4-Installer/1.0',
         ]);
 
-        if ($resumeFrom > 0) {
-            curl_setopt($ch, CURLOPT_RANGE, "{$resumeFrom}-");
-        }
-
-        $ok      = curl_exec($ch);
-        $curlErr = curl_error($ch);
+        $ok       = curl_exec($ch);
+        $curlErr  = curl_error($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
         fclose($fh);
 
         if ($ok === false) {
+            @unlink($zipPath);
             return Result::fail("cURL download failed (HTTP {$httpCode}): {$curlErr}");
         }
 
-        // --- 5. Verify zip magic bytes (PK) ---
-        $magicResult = $this->verifyZipMagicBytes($zipPath);
-        if (!$magicResult->success) {
-            @unlink($zipPath);
-            return $magicResult;
-        }
-
-        // --- 6. Extract ---
-        $extractDir = $tmpDir . DIRECTORY_SEPARATOR . 'ci4installer_extract_' . md5($this->zipUrl);
-
-        if (is_dir($extractDir)) {
-            $this->removeDirectory($extractDir);
-        }
-
-        $extractResult = $this->extractZip($zipPath, $extractDir);
-
-        if (!$extractResult->success) {
-            @unlink($zipPath);
-            return $extractResult;
-        }
-
-        // --- 7. Normalize (flatten single top-level dir) ---
-        $this->normalizeDirectory($extractDir);
-
-        // --- 8. Move extracted contents to target dir ---
-        if (!is_dir($targetDir)) {
-            mkdir($targetDir, 0755, true);
-        }
-
-        $moveResult = $this->moveContents($extractDir, $targetDir);
-
-        // --- 9. Clean up temp files ---
-        @unlink($zipPath);
-        $this->removeDirectory($extractDir);
-
-        // Clear session resume key on success.
-        if ($moveResult->success && session_status() === PHP_SESSION_ACTIVE) {
-            $sessionKey = 'ci4installer_dl_bytes_' . md5($this->zipUrl);
-            unset($_SESSION[$sessionKey]);
-        }
-
-        return $moveResult;
-    }
-
-    // -------------------------------------------------------------------------
-    // Private helpers
-    // -------------------------------------------------------------------------
-
-    private function verifyZipMagicBytes(string $zipPath): Result
-    {
+        // --- 2. Verify zip magic bytes (PK) ---
         $fh = fopen($zipPath, 'rb');
-
         if ($fh === false) {
-            return Result::fail('Cannot open downloaded file for verification: ' . $zipPath);
+            @unlink($zipPath);
+            return Result::fail('Cannot open downloaded file for verification.');
         }
-
         $magic = fread($fh, 2);
         fclose($fh);
 
         if ($magic !== 'PK') {
+            @unlink($zipPath);
             return Result::fail(
                 'Downloaded file does not appear to be a valid zip archive '
                 . '(missing PK magic bytes). The server may have returned an error page.'
             );
         }
 
-        return Result::ok();
-    }
+        // --- 3. Extract into target dir ---
+        $extractResult = $this->extractZip($zipPath, $targetDir);
+        @unlink($zipPath);
 
-    /**
-     * Move all files and directories from $src into $dst.
-     */
-    private function moveContents(string $src, string $dst): Result
-    {
-        $entries = array_filter(
-            (array) scandir($src),
-            static fn(string $e): bool => $e !== '.' && $e !== '..'
-        );
-
-        foreach ($entries as $entry) {
-            $srcPath = $src . DIRECTORY_SEPARATOR . $entry;
-            $dstPath = $dst . DIRECTORY_SEPARATOR . $entry;
-
-            if (!rename($srcPath, $dstPath)) {
-                return Result::fail("Failed to move '{$srcPath}' to '{$dstPath}'.");
-            }
+        if (!$extractResult->success) {
+            return $extractResult;
         }
+
+        // --- 4. Normalize (flatten single top-level dir) ---
+        $this->normalizeDirectory($targetDir);
 
         return Result::ok();
-    }
-
-    /**
-     * Recursively remove a directory and all its contents.
-     */
-    private function removeDirectory(string $dir): void
-    {
-        if (!is_dir($dir)) {
-            return;
-        }
-
-        $entries = array_filter(
-            (array) scandir($dir),
-            static fn(string $e): bool => $e !== '.' && $e !== '..'
-        );
-
-        foreach ($entries as $entry) {
-            $path = $dir . DIRECTORY_SEPARATOR . $entry;
-
-            if (is_dir($path)) {
-                $this->removeDirectory($path);
-            } else {
-                @unlink($path);
-            }
-        }
-
-        rmdir($dir);
     }
 }
